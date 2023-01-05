@@ -23,6 +23,8 @@ class Klijent:
     PLAY = 1
     PAUSE = 2
     EXIT = 3
+    SLOWER = 4
+    FASTER = 5
 
     #Inicijalizacija aplikacije
     def __init__(self, master, serveraddr, serverport, rtpport):
@@ -39,13 +41,15 @@ class Klijent:
         self.konekcijaNaServer()
         self.frameNbr = 0
 
+        self.mode = "normal"
+
         self.bytesReceived = 0
         self.startTime = 0
         self.lossCounter = 0
 
     def kreiranjeGUI(self):
         self.setup1 = Button(self.master, width=15, padx=3, pady=3)
-        self.setup1["text"] = "Ucitaj film 1"
+        self.setup1["text"] = "Učitaj film"
         self.setup1["command"] = self.postaviVideo1
         self.setup1.grid(row=2, column=0, padx=2, pady=2)
         self.setup1["state"] = "normal"
@@ -56,23 +60,35 @@ class Klijent:
         self.start.grid(row=3, column=0, padx=2, pady=2)
         self.start["state"] = "disabled"
 
+        self.rewindback = Button(self.master, width=15, padx=3, pady=3)
+        self.rewindback["text"] = "Uspori"
+        self.rewindback["command"] = self.usporiVideo
+        self.rewindback.grid(row=3, column=1, padx=2, pady=2)
+        self.rewindback["state"] = "disabled"
+
+        self.rewindforward = Button(self.master, width=15, padx=3, pady=3)
+        self.rewindforward["text"] = "Ubrzaj"
+        self.rewindforward["command"] = self.ubrzajVideo
+        self.rewindforward.grid(row=3, column=2, padx=2, pady=2)
+        self.rewindforward["state"] = "disabled"
+
         self.pause = Button(self.master, width=15, padx=3, pady=3)
         self.pause["text"] = "Zaustavi"
         self.pause["command"] = self.zaustaviVideo
-        self.pause.grid(row=3, column=1, padx=2, pady=2)
+        self.pause.grid(row=3, column=3, padx=2, pady=2)
         self.pause["state"] = "disabled"
 
         self.exit = Button(self.master, width=15, padx=3, pady=3)
         self.exit["text"] = "Izađi"
         self.exit["command"] = self.zatvori
-        self.exit.grid(row=3, column=2, padx=2, pady=2)
+        self.exit.grid(row=3, column=4, padx=2, pady=2)
         self.exit["state"] = "disabled"
 
         self.label = Label(self.master, height=18, bg="black")
-        self.label.grid(row=0, column=0, columnspan=4, sticky=W + E + N + S, padx=5, pady=5)
+        self.label.grid(row=0, column=0, columnspan=5, sticky=W + E + N + S, padx=5, pady=5)
 
         self.timeBox = Label(self.master, width=12, text="00:00")
-        self.timeBox.grid(row=1, column=1, sticky=W + E + N + S, padx=5, pady=5)
+        self.timeBox.grid(row=1, column=2, sticky=W + E + N + S, padx=5, pady=5)
 
     def postaviVideo1(self):
         if self.state == self.INIT:
@@ -99,6 +115,16 @@ class Klijent:
             self.playEvent = threading.Event()
             self.playEvent.clear()
             self.posaljiRTSPZahtjev(self.PLAY)
+    
+    def usporiVideo(self):
+        if self.state == self.PLAYING:
+            self.mode = "slow"
+            self.posaljiRTSPZahtjev(self.SLOWER)
+    
+    def ubrzajVideo(self):
+        if self.state == self.PLAYING:
+            self.mode = "fast"
+            self.posaljiRTSPZahtjev(self.FASTER)
 
     def slusajRtp(self):
         while True:
@@ -111,10 +137,8 @@ class Klijent:
                     # Ako se brojevi sekvenci ne poklapaju, dolazi do gubitka paketa
                     if self.frameNbr + 1 != rtpPacket.seqNum():
                         self.lossCounter += (rtpPacket.seqNum() - (self.frameNbr + 1))
-                        print("Gubitak paketa!")
 
                     currFrameNbr = rtpPacket.seqNum()
-                    print("Trenutni broj sekvence: " + str(currFrameNbr))
 
                     if currFrameNbr > self.frameNbr:
                         # Preracunavanje dobavljenih bajtova
@@ -126,6 +150,16 @@ class Klijent:
                         # Trenutno trajanje stream-a
                         currentTime = int(currFrameNbr * 0.05)
                         self.timeBox.configure(text="%02d:%02d" % (currentTime // 60, currentTime % 60))
+                    
+                                    #provjera u kojem modu se treba prikazivati video
+                    if self.mode == "normal" and self.state != self.READY:
+                        time.sleep(0.1)
+                    if self.mode == "slow" and self.state != self.READY:
+                        time.sleep(0.3)
+                    if self.mode == "fast" and self.state != self.READY:
+                        time.sleep(0.001)
+                    if self.state == self.READY:
+                        break
 
             except:
                 # prestanak oslusivanja u slucaju pauze ili izlaska iz programa
@@ -187,6 +221,19 @@ class Klijent:
             request += "Session: " + str(self.sessionId)
             self.requestSent = self.PAUSE
 
+
+        elif requestCode == self.SLOWER:
+            self.rtspSeq += 1
+            request = "SLOW DOWN " + str(self.fileName) + " RTSP/1.0\n"
+            request += "CSeq: " + str(self.rtspSeq) + "\n"
+            request += "Session: " + str(self.sessionId)
+        
+        elif requestCode == self.FASTER:
+            self.rtspSeq += 1
+            request = "SPEED UP " + str(self.fileName) + " RTSP/1.0\n"
+            request += "CSeq: " + str(self.rtspSeq) + "\n"
+            request += "Session: " + str(self.sessionId)
+
         elif requestCode == self.EXIT and not self.state == self.INIT:
             self.rtspSeq += 1
             request = "EXIT " + str(self.fileName) + " RTSP/1.0\n"
@@ -233,6 +280,8 @@ class Klijent:
                         self.setup1["state"] = "disabled"
                         self.start["state"] = "normal"
                         self.pause["state"] = "disabled"
+                        self.rewindforward["state"] = "disabled"
+                        self.rewindback["state"] = "disabled"
                         self.exit["state"] = "normal"
 
                     elif self.requestSent == self.PLAY:
@@ -241,6 +290,8 @@ class Klijent:
                         self.bytesReceived = 0
                         self.setup1["state"] = "disabled"
                         self.start["state"] = "disabled"
+                        self.rewindforward["state"] = "normal"
+                        self.rewindback["state"] = "normal"
                         self.pause["state"] = "normal"
                         self.exit["state"] = "normal"
 
@@ -253,6 +304,8 @@ class Klijent:
                         self.start["state"] = "normal"
                         self.pause["state"] = "disabled"
                         self.exit["state"] = "normal"
+                        self.rewindforward["state"] = "disabled"
+                        self.rewindback["state"] = "disabled"
 
                     elif self.requestSent == self.EXIT:
                         self.state = self.INIT
